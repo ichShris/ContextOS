@@ -1,0 +1,16 @@
+{
+  "name": "contextos-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ContextOS Monorepo Workspace",
+  "workspaces": [
+    "apps/server/*",
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=apps/server/ContextOS",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspaces"
+  }
+}
