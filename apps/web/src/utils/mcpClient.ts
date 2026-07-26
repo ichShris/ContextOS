@@ -273,16 +273,33 @@ export async function mcpQueryScenario(question: string): Promise<DemoScenario> 
     mcpBuildContextGraph(question, 8),
   ]);
 
-  // Extract the synthesized answer from the top memory retrieval result
-  // (the planner embeds retrieval results in the plan's tool call results)
-  const retrieveCall = task.plan.find((c) => c.toolName === 'retrieve_memories');
-  const memoriesResult = await mcpSearchMemories(question, { limit: 1 });
-  const topMemory = memoriesResult.memories[0];
+  // Extract the synthesized answer from the reflect_and_answer tool call
+  const reflectCall = task.plan.find((c) => c.toolName === 'reflect_and_answer');
+  const llmAnswer = reflectCall?.result?.answer as string | undefined;
+
+  // Fall back to memory search if reflect_and_answer didn't produce a result
+  let answer = llmAnswer;
+  let citations: import('@contextos/shared-types').EvidenceItem[] = [];
+
+  if (!answer) {
+    const memoriesResult = await mcpSearchMemories(question, { limit: 1 });
+    const topMemory = memoriesResult.memories[0];
+    answer = topMemory?.answer ?? `Agent completed task ${task.id} (${task.status}).`;
+    citations = topMemory?.citations ?? [];
+  } else {
+    // Try to get citations from the top matching memory
+    try {
+      const memoriesResult = await mcpSearchMemories(question, { limit: 1 });
+      citations = memoriesResult.memories[0]?.citations ?? [];
+    } catch {
+      citations = [];
+    }
+  }
 
   return {
     question: task.question,
-    answer: topMemory?.answer ?? `Agent completed task ${task.id} (${task.status}).`,
-    citations: topMemory?.citations ?? [],
+    answer,
+    citations,
     graph: { nodes: graphResult.nodes, edges: graphResult.edges },
     task,
   };
