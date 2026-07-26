@@ -11,6 +11,6 @@
   "scripts": {
     "dev:server": "npm run dev --workspace=apps/server/ContextOS",
     "dev:web": "npm run dev --workspace=apps/web",
-    "build": "npm run build --workspaces"
+    "build": "npm install && npm run build --workspaces"
   }
 }
