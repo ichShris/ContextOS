@@ -12,6 +12,6 @@
     "dev:server": "npm run dev --workspace=apps/server/ContextOS",
     "dev:web": "npm run dev --workspace=apps/web",
     "build": "npm install && npm run build --workspaces",
-    "start": "npm run start:prod --workspace=apps/server/ContextOS"
+    "start": "node apps/server/ContextOS/dist/index.js"
   }
 }
