@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "contextos-local-server": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "cd C:\\Users\\Shris\\Desktop\\ContextOS\\ContextOS\\apps\\server\\ContextOS && npx tsx src/index.ts"
+      ],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  }
+}

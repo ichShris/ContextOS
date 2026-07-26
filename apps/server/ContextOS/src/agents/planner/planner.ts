@@ -18,6 +18,9 @@ import {
 } from '../../shared-types/index.js';
 import { retrieveMemories, retrieveEvidence } from '../retriever/retriever.js';
 import { buildContextGraph } from '../context/context-builder.js';
+import { searchMemories } from '../memory/memory-manager.js';
+import { askReasoningAgent } from '../llm/client.js';
+import type { EvidenceItem } from '../../shared-types/index.js';
 
 // ---------------------------------------------------------------------------
 // Portable UUID generator (no external deps)
@@ -118,6 +121,25 @@ function addToolCall(
  * records the results in the task's plan and executionTrace.
  */
 export async function executeTask(task: AgentTask): Promise<AgentTask> {
+  // ── Fast-Path Check ───────────────────────────────────────────────────
+  const matchingMemories = await searchMemories(task.question, { limit: 1 });
+  const existingMemory = matchingMemories.find(m => m.question.toLowerCase() === task.question.toLowerCase());
+
+  if (existingMemory) {
+    appendTrace(task, 'memory_fast_path', 'Instant memory-fast-path answer: recalled from engineering memory.');
+    const fastPathCall = addToolCall(task, 'reflect_and_answer', {
+      query: task.question,
+    });
+    fastPathCall.status = 'completed';
+    fastPathCall.result = { answer: existingMemory.answer };
+    fastPathCall.timestamp = isoNow();
+
+    task.status = 'completed';
+    appendTrace(task, 'task_completed', 'Agent task completed via fast-path.');
+    taskStore.set(task.id, task);
+    return task;
+  }
+
   // ── Planning ──────────────────────────────────────────────────────────
   task.status = 'planning';
   appendTrace(
@@ -146,16 +168,18 @@ export async function executeTask(task: AgentTask): Promise<AgentTask> {
   retrieveCall.status = 'running';
   retrieveCall.timestamp = isoNow();
 
+  let retrievedEvidence: EvidenceItem[] = [];
+
   try {
     const scoredMemories = await retrieveMemories(task.question, {
       maxResults: 8,
     });
-    const evidence = await retrieveEvidence(task.question, { maxResults: 8 });
+    retrievedEvidence = await retrieveEvidence(task.question, { maxResults: 8 });
 
     retrieveCall.status = 'completed';
     retrieveCall.result = {
       memoriesFound: scoredMemories.length,
-      evidenceItems: evidence.length,
+      evidenceItems: retrievedEvidence.length,
       topScores: scoredMemories.slice(0, 3).map((m) => ({
         id: m.entry.id,
         score: Math.round(m.score * 1000) / 1000,
@@ -166,7 +190,7 @@ export async function executeTask(task: AgentTask): Promise<AgentTask> {
     appendTrace(
       task,
       'retriever_complete',
-      `Retrieved ${scoredMemories.length} memories and ${evidence.length} evidence items.`,
+      `Retrieved ${scoredMemories.length} memories and ${retrievedEvidence.length} evidence items.`,
     );
   } catch (error: any) {
     retrieveCall.status = 'failed';
@@ -229,6 +253,12 @@ export async function executeTask(task: AgentTask): Promise<AgentTask> {
     'Verifying all claims are grounded in citations. Max 1 retry allowed.',
   );
 
+  const reflectCall = addToolCall(task, 'reflect_and_answer', {
+    query: task.question,
+  });
+  reflectCall.status = 'running';
+  reflectCall.timestamp = isoNow();
+
   // In the hackathon MVP, reflection is a pass-through since we don't
   // have a real LLM. We log that citation grounding was verified.
   appendTrace(
@@ -236,6 +266,13 @@ export async function executeTask(task: AgentTask): Promise<AgentTask> {
     'reflection_pass',
     'All evidence items have valid source IDs and URLs. Reflection passed.',
   );
+
+  // Generate dynamic answer using Groq
+  const synthesizedAnswer = await askReasoningAgent(task.question, retrievedEvidence);
+
+  reflectCall.status = 'completed';
+  reflectCall.result = { answer: synthesizedAnswer };
+  reflectCall.timestamp = isoNow();
 
   // ── Completed ─────────────────────────────────────────────────────────
   task.status = 'completed';
